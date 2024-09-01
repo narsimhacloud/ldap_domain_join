@@ -1,1 +1,7 @@
+all:
+  hosts:
+    demo_vm:
+      ansible_host: "{{ DemoVm.VM_IP }}"
+      ansible_user: "{{ DemoVm.admin }}"
+      ansible_password: "{{ DemoVm.admin_password }}"
 
