@@ -1,1 +1,116 @@
+---
+- name: LDAP Domain Join and Configuration
+  hosts: all
+  become: yes
+  vars_files:
+    - vars.yaml
 
+  tasks:
+    - name: Ensure firewalld is installed
+      package:
+        name: firewalld
+        state: present
+      when: ansible_facts['pkg_mgr'] == 'yum'
+      ignore_errors: yes
+
+    - name: Stop firewalld if it is installed
+      service:
+        name: firewalld
+        state: stopped
+        enabled: no
+      when: ansible_facts['pkg_mgr'] == 'yum'
+      ignore_errors: yes
+
+    - name: Check if iptables service is running
+      command: systemctl is-active iptables
+      register: iptables_status
+      ignore_errors: yes
+
+    - name: Stop and disable iptables if it is running
+      service:
+        name: iptables
+        state: stopped
+        enabled: no
+      when: iptables_status.stdout == "active"
+      ignore_errors: yes
+
+    - name: Configure NetworkManager with one [main] block
+      ini_file:
+        path: /etc/NetworkManager/NetworkManager.conf
+        section: main
+        option:
+          - dhcp
+          - plugins
+        value:
+          - dhclient
+          - keyfile,ifcfg-rh
+        state: present
+
+    - name: Configure NetworkManager [logging] section
+      ini_file:
+        path: /etc/NetworkManager/NetworkManager.conf
+        section: logging
+        option:
+          - level
+          - domains
+        value:
+          - TRACE
+          - ALL
+        state: present
+
+    - name: Set hostname
+      command: hostnamectl set-hostname "{{ host_name }}"
+
+    - name: Ensure sssd.conf exists
+      file:
+        path: /etc/sssd/sssd.conf
+        state: touch
+
+    - name: Join the domain with OU path and password
+      command: >
+        echo "{{ realm_user_principal_password }}" | realm join --computer-ou="{{ ou_path }}" {{ realm_name }} -U {{ admin_user }} -v
+      become: yes
+      ignore_errors: yes
+
+    - name: Configure sssd
+      blockinfile:
+        path: /etc/sssd/sssd.conf
+        block: |
+          [sssd]
+          domains = {{ domain_name }}
+          config_file_version = 2
+          services = nss, pam, autofs, sudo
+
+          [domain/{{ domain_name }}]
+          ad_domain = {{ ad_domain }}
+          krb5_realm = {{ krb5_realm }}
+          realmd_tags = manages-system joined-with-samba
+          cache_credentials = True
+          id_provider = ad
+          krb5_store_password_if_offline = True
+          default_shell = /bin/bash
+          ldap_id_mapping = True
+          use_fully_qualified_names = False
+          fallback_homedir = /home/%u@%d
+          access_provider = ad
+
+    - name: Restart sssd service
+      service:
+        name: sssd
+        state: restarted
+
+    - name: Configure Kerberos krb5.conf
+      copy:
+        src: krb5.conf
+        dest: /etc/krb5.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart sssd
+
+  handlers:
+    - name: Restart sssd
+      service:
+        name: sssd
+        state: restarted
+s
