@@ -1,1 +1,13 @@
+domain_name: "****.com"
+host_name: " ***** "
+realm_name: "******. COM" 
+nameservers:
+  - "10.187.10.55"
+  - "10.187.10.52"
+  - "10.187.10.53"
+search_domain: "reddog-microsoft.com *******.com"
 
+admin_user: "sve_redhat_AD"
+ou_path: "OU=CIS_2022,OU=***_Servers,OU=DEV,DC=nonprod,DC=*****,DC=com"
+
+realm_user_principal_password: "{{ lookup('env', 'DemoVm.realm_user_principal_password') }}"
