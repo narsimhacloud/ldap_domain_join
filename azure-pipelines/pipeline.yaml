@@ -1,1 +1,78 @@
+trigger: none
 
+pool:
+  name: WAB-Self-Hosted-RHEL
+
+variables:
+  - group: DemoVm  # References the DemoVm variable group
+
+steps:
+  - bash: ifconfig -a
+    displayName: 'Display Network Configuration'
+  
+  - bash: |
+     # Remove the existing host from known_hosts to avoid conflicts
+     ssh-keygen -R $(DemoVm.VM_IP) || true
+
+     # Ensure the .ssh directory exists
+     mkdir -p ~/.ssh
+
+     # Add the server's fingerprint to known_hosts
+     ssh-keyscan -H $(DemoVm.VM_IP) >> ~/.ssh/known_hosts
+
+     # Test the SSH connection using password-based authentication with the correct user
+     sshpass -p "$(DemoVm.admin_password)" ssh -vvvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null  $(DemoVm.admin)@$(DemoVm.VM_IP) ifconfig
+  
+    env:
+      ANSIBLE_VERSION: $(ansible.version)
+      ANSIBLE_USERNAME: $(DemoVm.admin)
+      DemoVm.admin_password: $(DemoVm.admin_password)
+      VM_IP: $(DemoVm.VM_IP) 
+      REALM_USER_PRINCIPAL: $(DemoVm.realm_user_principal)
+      REALM_USER_PRINCIPAL_PASSWORD: $(DemoVm.realm_user_principal_password)
+
+
+    displayName: 'Test SSH Connection'
+    continueOnError: True
+
+  - checkout: self
+    path: linux-ldap
+    displayName: 'Checkout Repository'
+  #linux-ldap---> azure repo
+  - task: Bash@3
+    displayName: 'Run Ansible Playbook'
+    inputs:
+      targetType: 'inline'
+      workingDirectory: '$(Pipeline.Workspace)/linux-ldap'
+      script: |
+        # Ensure the correct environment for Ansible
+        export ANSIBLE_CONFIG=$(Pipeline.Workspace)/linux-ldap/ansible.cfg
+
+        # Set ADMIN_PASSWORD environment variable for Ansible
+        export ADMIN_PASSWORD=$(DemoVm.admin_password)
+        export ADMIN_USERNAME=$(DemoVm.admin)
+        export VM_IP=$(DemoVm.VM_IP)
+
+        export REALM_USER_PRINCIPAL=$(DemoVm.realm_user_principal)
+        export REALM_USER_PRINCIPAL_PASSWORD=$(DemoVm.realm_user_principal_password)
+
+        # Activate the virtual environment
+        python3 -m venv .venv
+        source .venv/bin/activate
+
+        # Install Ansible
+        python -m pip install --upgrade pip
+        pip install ansible==$(DemoVm.ANSIBLE_VERSION)
+
+        ansible-galaxy collection install community.general
+
+        # Run the playbook
+        ansible-playbook -i inventory.yaml ldap_join.yaml -e @vars.yaml -vvvv
+    
+    env: 
+      ANSIBLE_VERSION: $(ansible.version)
+      ANSIBLE_USERNAME: $(DemoVm.admin)
+      DemoVm.admin_password: $(DemoVm.admin_password)
+      VM_IP: $(DemoVm.VM_IP) 
+      REALM_USER_PRINCIPAL: $(DemoVm.realm_user_principal)
+      REALM_USER_PRINCIPAL_PASSWORD: $(DemoVm.realm_user_principal_password)
